@@ -1,0 +1,27 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  quantity: 1
+  category: MyString
+  tags: MyString
+  current_location: MyString
+  weight: 9.99
+  owner: MyString
+  intended_location: MyString
+  notes: MyText
+  location_notes: MyText
+  potential_discard_sell: false
+  name: MyString
+
+two:
+  quantity: 1
+  category: MyString
+  tags: MyString
+  current_location: MyString
+  weight: 9.99
+  owner: MyString
+  intended_location: MyString
+  notes: MyText
+  location_notes: MyText
+  potential_discard_sell: false
+  name: MyString

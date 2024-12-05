@@ -1,4 +1,7 @@
 Rails.application.routes.draw do
+  get 'items/show'
+  get 'items/create'
+  get 'items/update'
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 
   # Defines the root path route ("/")

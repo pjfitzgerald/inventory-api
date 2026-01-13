@@ -54,7 +54,7 @@ module Api
           :intended_location,
           :notes,
           :location_notes,
-          :potential_discard_sell
+          :status
         )
       end
     end

@@ -1,27 +1,27 @@
 # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
 
 one:
+  name: Fixture Item One
   quantity: 1
-  category: MyString
-  tags: MyString
-  current_location: MyString
-  weight: 9.99
-  owner: MyString
-  intended_location: MyString
-  notes: MyText
-  location_notes: MyText
-  potential_discard_sell: false
-  name: MyString
+  category: electronics
+  tags: test, fixture
+  current_location: office
+  weight: 0.5
+  owner: test_user
+  intended_location: storage
+  notes: Test notes
+  location_notes: On the shelf
+  status: Keep
 
 two:
-  quantity: 1
-  category: MyString
-  tags: MyString
-  current_location: MyString
-  weight: 9.99
-  owner: MyString
-  intended_location: MyString
-  notes: MyText
-  location_notes: MyText
-  potential_discard_sell: false
-  name: MyString
+  name: Fixture Item Two
+  quantity: 2
+  category: books
+  tags: reading
+  current_location: bedroom
+  weight: 0.25
+  owner: test_user
+  intended_location: library
+  notes: Another test item
+  location_notes: On desk
+  status: Sell

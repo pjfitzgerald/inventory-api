@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.0].define(version: 2024_11_02_133310) do
+ActiveRecord::Schema[7.0].define(version: 2026_01_12_103854) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -24,10 +24,10 @@ ActiveRecord::Schema[7.0].define(version: 2024_11_02_133310) do
     t.string "intended_location"
     t.text "notes"
     t.text "location_notes"
-    t.boolean "potential_discard_sell"
     t.string "name"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "status", default: "Keep"
   end
 
 end

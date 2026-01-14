@@ -47,14 +47,14 @@ module Api
           :name,
           :quantity,
           :category,
-          :tags,
           :current_location,
           :weight,
           :owner,
           :intended_location,
           :notes,
           :location_notes,
-          :status
+          :status,
+          tags: []
         )
       end
     end

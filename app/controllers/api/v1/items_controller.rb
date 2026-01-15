@@ -54,7 +54,8 @@ module Api
           :notes,
           :location_notes,
           :status,
-          tags: []
+          tags: [],
+          custom_fields: {}
         )
       end
     end

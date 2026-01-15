@@ -47,14 +47,15 @@ module Api
           :name,
           :quantity,
           :category,
-          :tags,
           :current_location,
           :weight,
           :owner,
           :intended_location,
           :notes,
           :location_notes,
-          :potential_discard_sell
+          :status,
+          tags: [],
+          custom_fields: {}
         )
       end
     end

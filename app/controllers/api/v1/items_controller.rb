@@ -54,6 +54,8 @@ module Api
           :notes,
           :location_notes,
           :status,
+          :created_at,
+          :updated_at,
           tags: [],
           custom_fields: {}
         )

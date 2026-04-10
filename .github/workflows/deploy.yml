@@ -1,0 +1,39 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Deploy to VPS
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_deploy deploy@100.72.181.37 bash << 'SCRIPT'
+          set -euo pipefail
+          cd /srv/inventory
+
+          echo "==> Pulling latest changes..."
+          git -C inventory-api pull
+          git -C inventory-frontend pull
+
+          echo "==> Building images..."
+          docker compose build
+
+          echo "==> Running migrations..."
+          docker compose run --rm api bundle exec rails db:migrate
+
+          echo "==> Restarting services..."
+          docker compose up -d
+
+          echo "==> Done!"
+          SCRIPT

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Bash wrapper so the CLI works from any directory and any shell —
+# `mise exec` resolves Ruby 3.2.0 from inventory/mise.toml before invoking Ruby.
+set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$APP_DIR"
+exec mise exec -- ruby "$SCRIPT_DIR/inventory.rb" "$@"

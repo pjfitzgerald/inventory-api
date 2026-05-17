@@ -1,16 +1,13 @@
 Rails.application.routes.draw do
-  get 'items/show'
-  get 'items/create'
-  get 'items/update'
-  # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
-
-  # Defines the root path route ("/")
-  # root "articles#index"
-
   namespace :api do
     namespace :v1 do
       resources :items
+
+      post 'auth/signup', to: 'auth#signup'
+      post 'auth/login',  to: 'auth#login'
+      post 'auth/logout', to: 'auth#logout'
+      post 'auth/verify', to: 'auth#verify'
+      get  'auth/me',     to: 'auth#me'
     end
   end
-
 end

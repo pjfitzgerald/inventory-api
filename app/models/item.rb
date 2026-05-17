@@ -1,4 +1,6 @@
 class Item < ApplicationRecord
+    belongs_to :user
+
     validates :name, presence: true
 
       # Convert tags string to array on read

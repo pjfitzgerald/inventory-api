@@ -8,4 +8,7 @@ require 'bundler/setup'
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'inventory_cli'
 
+# So Thor's generated help/usage reads "inventory", not "inventory.rb".
+$PROGRAM_NAME = 'inventory'
+
 InventoryCLI::CLI.start(ARGV)

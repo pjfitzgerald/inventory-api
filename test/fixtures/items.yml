@@ -12,6 +12,7 @@ one:
   notes: Test notes
   location_notes: On the shelf
   status: Keep
+  user: alice
 
 two:
   name: Fixture Item Two
@@ -25,3 +26,4 @@ two:
   notes: Another test item
   location_notes: On desk
   status: Sell
+  user: alice

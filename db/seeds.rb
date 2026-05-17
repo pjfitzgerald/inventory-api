@@ -1,8 +1,22 @@
 require 'csv'
 
-# Clear existing items
-puts "Clearing existing items..."
-Item.destroy_all
+# Seeded items belong to a single owner account. Override the credentials
+# with SEED_OWNER_EMAIL / SEED_OWNER_PASSWORD; the defaults are for local dev.
+owner_email = ENV.fetch('SEED_OWNER_EMAIL', 'owner@example.com').strip.downcase
+owner = User.find_or_initialize_by(email: owner_email)
+if owner.new_record?
+  owner.password = ENV.fetch('SEED_OWNER_PASSWORD', 'changeme123')
+  owner.name = 'Inventory Owner'
+  owner.email_verified_at = Time.current
+  owner.save!
+  puts "Created owner user #{owner.email}"
+else
+  puts "Using existing owner user #{owner.email}"
+end
+
+# Clear this owner's existing items
+puts "Clearing existing items for #{owner.email}..."
+owner.items.destroy_all
 
 # Load seed data from CSV
 csv_path = Rails.root.join('data', 'seed-data.csv')
@@ -32,7 +46,7 @@ CSV.foreach(csv_path, headers: true, liberal_parsing: true) do |row|
     next
   end
 
-  Item.create!(
+  owner.items.create!(
     name: row['item'],
     quantity: row['quantity'].presence&.to_i,
     category: row['category'].presence,

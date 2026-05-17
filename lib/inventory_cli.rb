@@ -3,21 +3,87 @@ require 'json'
 
 require_relative 'inventory_cli/client'
 require_relative 'inventory_cli/formatters'
+require_relative 'inventory_cli/token_store'
 
 module InventoryCLI
-  class CLI < Thor
+  # Shared Thor base: friendly exit codes and uniform error handling.
+  class BaseCommand < Thor
     def self.exit_on_failure?
       true
     end
 
-    def self.banner(command, namespace = nil, subcommand = false)
-      "inventory #{command.usage}"
+    def self.dispatch(command, given_args, given_opts, config)
+      super
+    rescue Client::Error => e
+      warn e.message
+      exit 1
+    rescue Errno::ECONNREFUSED => e
+      url = ENV['INVENTORY_API_URL'] || 'http://localhost:3001/api/v1'
+      warn "Cannot reach API at #{url} (#{e.message}). Is the Rails server running?"
+      exit 1
+    end
+  end
+
+  # `inventory auth ...` — authentication commands.
+  class Auth < BaseCommand
+    desc 'login', 'Log in and store an auth token'
+    option :email, type: :string, required: true
+    option :password, type: :string, required: true
+    def login
+      result = client.login(email: options[:email], password: options[:password])
+      TokenStore.write(result['token'])
+      warn "Logged in as #{result.dig('user', 'email')}. Token saved to #{TokenStore.path}."
     end
 
+    desc 'logout', 'Discard the stored auth token'
+    def logout
+      TokenStore.clear
+      warn 'Logged out.'
+    end
+
+    desc 'signup', 'Create a new account'
+    option :email, type: :string, required: true
+    option :password, type: :string, required: true
+    option :name, type: :string
+    def signup
+      result = client.signup(email: options[:email], password: options[:password], name: options[:name])
+      warn(result['message'] || 'Account created.')
+      if (token = result['verification_token'])
+        warn "Verify with: inventory auth verify --token #{token}"
+      end
+      puts JSON.pretty_generate(result)
+    end
+
+    desc 'verify', 'Verify an email address with a token'
+    option :token, type: :string, required: true
+    def verify
+      result = client.verify(options[:token])
+      TokenStore.write(result['token']) if result['token']
+      warn(result['message'] || 'Email verified.')
+      warn "Logged in as #{result.dig('user', 'email')}."
+    end
+
+    desc 'whoami', 'Show the currently authenticated user'
+    def whoami
+      puts JSON.pretty_generate(client.me['user'])
+    end
+
+    private
+
+    def client
+      @client ||= Client.new
+    end
+  end
+
+  # `inventory ...` — item commands.
+  class CLI < BaseCommand
     class_option :format, type: :string, default: 'json', enum: %w[json table],
                           desc: 'Output format'
     class_option :url, type: :string,
                        desc: "API base URL (default: $INVENTORY_API_URL or http://localhost:3001/api/v1)"
+
+    desc 'auth SUBCOMMAND', 'Authentication: login, logout, signup, verify, whoami'
+    subcommand 'auth', Auth
 
     desc 'list', 'List items, optionally filtered by --query'
     option :query, type: :string, desc: 'Search across name, category, tags, current_location'
@@ -44,10 +110,9 @@ module InventoryCLI
     option :location_notes, type: :string
     option :status, type: :string, enum: %w[Keep Sell Discard]
     option :tags, type: :array, desc: 'Tags, e.g. --tags=cars books'
-    option :field, type: :hash, desc: 'Custom fields, e.g. --field color=red size=L'
+    option :field, type: :hash, desc: 'Custom fields, e.g. --field color:red size:L'
     def create
-      attrs = build_attrs(options)
-      item = client.create(attrs)
+      item = client.create(build_attrs(options))
       Formatters.render(item, format: options[:format])
     end
 
@@ -83,7 +148,15 @@ module InventoryCLI
     private
 
     def client
+      require_auth!
       @client ||= Client.new(**(options[:url] ? { base_url: options[:url] } : {}))
+    end
+
+    def require_auth!
+      return if TokenStore.read
+
+      warn 'Not authenticated — run `inventory auth login` first.'
+      exit 1
     end
 
     PARAM_KEYS = %w[name quantity category current_location intended_location
@@ -95,16 +168,6 @@ module InventoryCLI
       end
       attrs['custom_fields'] = opts[:field] if opts[:field]
       attrs
-    end
-
-    def self.dispatch(command, given_args, given_opts, config)
-      super
-    rescue Client::Error => e
-      warn e.message
-      exit 1
-    rescue Errno::ECONNREFUSED => e
-      warn "Cannot reach API at #{ENV['INVENTORY_API_URL'] || 'http://localhost:3001/api/v1'} (#{e.message}). Is the Rails server running?"
-      exit 1
     end
   end
 end

@@ -1,0 +1,20 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+# Password for all fixture users is "password123".
+
+alice:
+  email: alice@example.com
+  password_digest: <%= BCrypt::Password.create('password123') %>
+  name: Alice
+  email_verified_at: 2026-01-01 00:00:00
+
+bob:
+  email: bob@example.com
+  password_digest: <%= BCrypt::Password.create('password123') %>
+  name: Bob
+  email_verified_at: 2026-01-01 00:00:00
+
+unverified:
+  email: unverified@example.com
+  password_digest: <%= BCrypt::Password.create('password123') %>
+  name: Unverified User
+  email_verification_token: pending-verification-token

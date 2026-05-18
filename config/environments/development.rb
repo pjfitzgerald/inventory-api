@@ -38,6 +38,11 @@ Rails.application.configure do
 
   config.action_mailer.perform_caching = false
 
+  # No real mail in development: signup / password-reset API responses include
+  # the token directly (see AuthController), so the CLI flow works without an
+  # inbox. Sent mail accumulates in ActionMailer::Base.deliveries instead.
+  config.action_mailer.delivery_method = :test
+
   # Print deprecation notices to the Rails logger.
   config.active_support.deprecation = :log
 

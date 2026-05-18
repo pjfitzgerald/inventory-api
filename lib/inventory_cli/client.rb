@@ -61,6 +61,15 @@ module InventoryCLI
       request(Net::HTTP::Post, '/auth/verify', body: { token: token })
     end
 
+    def request_password_reset(email)
+      request(Net::HTTP::Post, '/auth/request_password_reset', body: { email: email })
+    end
+
+    def reset_password(token:, password:)
+      request(Net::HTTP::Post, '/auth/reset_password',
+              body: { token: token, password: password })
+    end
+
     def me
       request(Net::HTTP::Get, '/auth/me')
     end

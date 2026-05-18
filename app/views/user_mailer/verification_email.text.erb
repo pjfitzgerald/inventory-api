@@ -1,0 +1,11 @@
+Verify your email
+=================
+
+Hi<%= " #{@user.name}" if @user.name.present? %>,
+
+Thanks for signing up for Inventory. Confirm this email address to
+activate your account and log in:
+
+<%= @url %>
+
+If you didn't create this account, you can safely ignore this email.

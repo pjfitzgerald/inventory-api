@@ -26,6 +26,10 @@ module InventoryCLI
 
   # `inventory auth ...` — authentication commands.
   class Auth < BaseCommand
+    # Accept the hyphenated forms shown in `desc` as well as the method names.
+    map 'request-reset' => :request_reset
+    map 'reset-password' => :reset_password
+
     desc 'login', 'Log in and store an auth token'
     option :email, type: :string, required: true
     option :password, type: :string, required: true
@@ -61,6 +65,26 @@ module InventoryCLI
       TokenStore.write(result['token']) if result['token']
       warn(result['message'] || 'Email verified.')
       warn "Logged in as #{result.dig('user', 'email')}."
+    end
+
+    desc 'request-reset', 'Request a password-reset email'
+    option :email, type: :string, required: true
+    def request_reset
+      result = client.request_password_reset(options[:email])
+      warn(result['message'] || 'If that email has an account, a reset link has been sent.')
+      if (token = result['reset_token'])
+        warn "Reset with: inventory auth reset-password --token #{token} --password <new-password>"
+      end
+    end
+
+    desc 'reset-password', 'Set a new password using a reset token'
+    option :token, type: :string, required: true
+    option :password, type: :string, required: true
+    def reset_password
+      result = client.reset_password(token: options[:token], password: options[:password])
+      TokenStore.write(result['token']) if result['token']
+      warn(result['message'] || 'Password updated.')
+      warn "Logged in as #{result.dig('user', 'email')}." if result.dig('user', 'email')
     end
 
     desc 'whoami', 'Show the currently authenticated user'

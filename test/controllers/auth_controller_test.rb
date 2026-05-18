@@ -114,4 +114,76 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal users(:alice).email, JSON.parse(response.body)["user"]["email"]
   end
+
+  test "signup sends a verification email" do
+    assert_difference -> { ActionMailer::Base.deliveries.size }, 1 do
+      post api_v1_auth_signup_url,
+           params: { email: "mailer@example.com", password: "password123" },
+           as: :json
+    end
+    assert_equal ["mailer@example.com"], ActionMailer::Base.deliveries.last.to
+  end
+
+  test "request_password_reset emails a token and returns 200" do
+    assert_difference -> { ActionMailer::Base.deliveries.size }, 1 do
+      post api_v1_auth_request_password_reset_url,
+           params: { email: users(:alice).email }, as: :json
+    end
+    assert_response :success
+    assert users(:alice).reload.password_reset_token.present?
+  end
+
+  test "request_password_reset returns 200 for an unknown email without sending" do
+    assert_no_difference -> { ActionMailer::Base.deliveries.size } do
+      post api_v1_auth_request_password_reset_url,
+           params: { email: "nobody@example.com" }, as: :json
+    end
+    assert_response :success
+  end
+
+  test "reset_password with a valid token updates the password and returns a JWT" do
+    user = users(:alice)
+    user.start_password_reset!
+    post api_v1_auth_reset_password_url,
+         params: { token: user.password_reset_token, password: "newpassword1" },
+         as: :json
+    assert_response :success
+    assert JSON.parse(response.body)["token"].present?
+    assert user.reload.authenticate("newpassword1")
+    assert_nil user.password_reset_token
+  end
+
+  test "reset_password rejects an invalid token" do
+    post api_v1_auth_reset_password_url,
+         params: { token: "bogus-token", password: "newpassword1" }, as: :json
+    assert_response :unprocessable_entity
+  end
+
+  test "reset_password rejects an expired token" do
+    user = users(:alice)
+    user.start_password_reset!
+    user.update!(password_reset_sent_at: 3.hours.ago)
+    post api_v1_auth_reset_password_url,
+         params: { token: user.password_reset_token, password: "newpassword1" },
+         as: :json
+    assert_response :unprocessable_entity
+  end
+
+  test "reset_password rejects a short password" do
+    user = users(:alice)
+    user.start_password_reset!
+    post api_v1_auth_reset_password_url,
+         params: { token: user.password_reset_token, password: "abc" }, as: :json
+    assert_response :unprocessable_entity
+  end
+
+  test "reset_password verifies a previously unverified user" do
+    user = users(:unverified)
+    user.start_password_reset!
+    post api_v1_auth_reset_password_url,
+         params: { token: user.password_reset_token, password: "newpassword1" },
+         as: :json
+    assert_response :success
+    assert user.reload.email_verified?
+  end
 end

@@ -1,0 +1,14 @@
+<h1>Verify your email</h1>
+
+<p>Hi<%= " #{@user.name}" if @user.name.present? %>,</p>
+
+<p>Thanks for signing up for Inventory. Confirm this email address to
+activate your account and log in:</p>
+
+<p><a href="<%= @url %>">Verify my email</a></p>
+
+<p>If the button doesn't work, paste this link into your browser:</p>
+
+<p><%= @url %></p>
+
+<p>If you didn't create this account, you can safely ignore this email.</p>

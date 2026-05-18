@@ -1,7 +1,9 @@
 module Api
   module V1
     class AuthController < ApplicationController
-      skip_before_action :authenticate!, only: %i[signup login verify logout]
+      skip_before_action :authenticate!,
+                          only: %i[signup login verify logout
+                                   request_password_reset reset_password]
 
       # POST /api/v1/auth/signup
       def signup
@@ -13,10 +15,12 @@ module Api
         )
 
         if user.save
+          deliver(UserMailer.verification_email(user))
           render json: {
             user: user_json(user),
-            message: 'Account created. Verify your email address to log in.',
-            # Emailed in production; surfaced directly until email delivery lands.
+            message: 'Account created. Check your email for a verification link.',
+            # Emailed to the user; also surfaced directly outside production so
+            # the CLI / dev flow works without a real inbox.
             verification_token: (user.email_verification_token unless Rails.env.production?)
           }.compact, status: :created
         else
@@ -58,6 +62,43 @@ module Api
         }
       end
 
+      # POST /api/v1/auth/request_password_reset
+      def request_password_reset
+        user = User.find_by(email: params[:email].to_s.strip.downcase)
+        if user
+          user.start_password_reset!
+          deliver(UserMailer.password_reset_email(user))
+        end
+
+        # Identical response whether or not the email exists, so this endpoint
+        # can't be used to probe which addresses have accounts.
+        render json: {
+          message: 'If that email has an account, a password reset link is on its way.',
+          reset_token: (user&.password_reset_token unless Rails.env.production?)
+        }.compact
+      end
+
+      # POST /api/v1/auth/reset_password
+      def reset_password
+        token = params[:token].to_s
+        user = token.present? && User.find_by(password_reset_token: token)
+
+        unless user && user.password_reset_valid?
+          return render json: { error: 'Invalid or expired reset token' },
+                        status: :unprocessable_entity
+        end
+
+        if user.reset_password!(params[:password].to_s)
+          render json: {
+            token: JsonWebToken.encode({ user_id: user.id }),
+            user: user_json(user),
+            message: 'Password updated.'
+          }
+        else
+          render json: { errors: user.errors.full_messages }, status: :unprocessable_entity
+        end
+      end
+
       # POST /api/v1/auth/logout — stateless: the client discards its token.
       def logout
         render json: { message: 'Logged out' }
@@ -69,6 +110,15 @@ module Api
       end
 
       private
+
+      # Send mail without letting a delivery failure break the request: the
+      # account change has already been persisted and matters more than the
+      # email going out. Failures are logged for follow-up.
+      def deliver(mail)
+        mail.deliver_now
+      rescue StandardError => e
+        Rails.logger.error("Email delivery failed: #{e.class}: #{e.message}")
+      end
 
       def user_json(user)
         {

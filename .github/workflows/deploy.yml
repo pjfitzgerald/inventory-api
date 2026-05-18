@@ -1,8 +1,10 @@
 name: Deploy
 
+# Auto-deploy disabled 2026-05-19: production moved off the Vultr VPS onto the
+# T480, which deploys locally via git hooks (no CI). Kept as a manual-only
+# escape hatch for the VPS — trigger by hand from the Actions tab if ever needed.
 on:
-  push:
-    branches: [master]
+  workflow_dispatch:
 
 jobs:
   deploy:

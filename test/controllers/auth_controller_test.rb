@@ -14,6 +14,34 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
     assert body["verification_token"].present?
   end
 
+  test "signup hides verification_token in production without EXPOSE_AUTH_TOKENS" do
+    with_rails_env("production") do
+      ENV.delete("EXPOSE_AUTH_TOKENS")
+      post api_v1_auth_signup_url,
+           params: { email: "prod@example.com", password: "password123" },
+           as: :json
+    end
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body["verification_token"]
+  end
+
+  test "signup exposes verification_token in production when EXPOSE_AUTH_TOKENS=true" do
+    with_rails_env("production") do
+      ENV["EXPOSE_AUTH_TOKENS"] = "true"
+      begin
+        post api_v1_auth_signup_url,
+             params: { email: "staging@example.com", password: "password123" },
+             as: :json
+      ensure
+        ENV.delete("EXPOSE_AUTH_TOKENS")
+      end
+    end
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert body["verification_token"].present?
+  end
+
   test "signup rejects a duplicate email" do
     assert_no_difference("User.count") do
       post api_v1_auth_signup_url,

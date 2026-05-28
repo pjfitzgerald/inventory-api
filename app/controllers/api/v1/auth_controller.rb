@@ -19,9 +19,10 @@ module Api
           render json: {
             user: user_json(user),
             message: 'Account created. Check your email for a verification link.',
-            # Emailed to the user; also surfaced directly outside production so
-            # the CLI / dev flow works without a real inbox.
-            verification_token: (user.email_verification_token unless Rails.env.production?)
+            # Emailed to the user; also surfaced in the response when tokens
+            # are exposed (dev/test always, staging via EXPOSE_AUTH_TOKENS) so
+            # the CLI / staging UI can complete the flow without a real inbox.
+            verification_token: (user.email_verification_token if auth_tokens_exposed?)
           }.compact, status: :created
         else
           render json: { errors: user.errors.full_messages }, status: :unprocessable_entity
@@ -74,7 +75,7 @@ module Api
         # can't be used to probe which addresses have accounts.
         render json: {
           message: 'If that email has an account, a password reset link is on its way.',
-          reset_token: (user&.password_reset_token unless Rails.env.production?)
+          reset_token: (user&.password_reset_token if auth_tokens_exposed?)
         }.compact
       end
 
@@ -118,6 +119,14 @@ module Api
         mail.deliver_now
       rescue StandardError => e
         Rails.logger.error("Email delivery failed: #{e.class}: #{e.message}")
+      end
+
+      # Whether the verification / reset tokens are returned in the JSON
+      # response. Always true outside production; in production, gated on
+      # the EXPOSE_AUTH_TOKENS env var (set on staging so the UI flows are
+      # testable without real email delivery).
+      def auth_tokens_exposed?
+        !Rails.env.production? || ENV['EXPOSE_AUTH_TOKENS'] == 'true'
       end
 
       def user_json(user)

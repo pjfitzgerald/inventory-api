@@ -17,4 +17,15 @@ class ActionDispatch::IntegrationTest
   def auth_headers(user)
     { 'Authorization' => "Bearer #{JsonWebToken.encode({ user_id: user.id })}" }
   end
+
+  # Run the block with Rails.env temporarily set to the given value, for
+  # testing production-only behaviour from the test env. Restored on exit
+  # even if the block raises.
+  def with_rails_env(env)
+    original = Rails.env
+    Rails.env = env
+    yield
+  ensure
+    Rails.env = original
+  end
 end

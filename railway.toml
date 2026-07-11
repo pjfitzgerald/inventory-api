@@ -1,0 +1,7 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+releaseCommand = "bundle exec rails db:migrate"
+restartPolicyType = "ON_FAILURE"

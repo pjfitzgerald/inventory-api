@@ -57,19 +57,14 @@ Rails.application.configure do
 
   config.action_mailer.perform_caching = false
 
-  # Email delivery via Resend (https://resend.com) over SMTP — no extra gem
-  # needed. RESEND_API_KEY is used as the SMTP password and must be set in the
-  # deploy environment; the sender address comes from MAIL_FROM (see
-  # ApplicationMailer) and its domain needs Resend DKIM/SPF DNS records.
-  config.action_mailer.delivery_method = :smtp
-  config.action_mailer.smtp_settings = {
-    address: ENV.fetch("SMTP_ADDRESS", "smtp.resend.com"),
-    port: ENV.fetch("SMTP_PORT", 587).to_i,
-    user_name: ENV.fetch("SMTP_USERNAME", "resend"),
-    password: ENV["RESEND_API_KEY"],
-    authentication: :plain,
-    enable_starttls_auto: true
-  }
+  # Email delivery via Resend (https://resend.com) over its HTTP API rather
+  # than SMTP — smtp.resend.com is unreachable from Railway's network (every
+  # port times out), while api.resend.com:443 connects fine. RESEND_API_KEY
+  # must be set in the deploy environment; the sender address comes from
+  # MAIL_FROM (see ApplicationMailer) and its domain needs Resend DKIM/SPF
+  # DNS records. See app/lib/resend_delivery_method.rb.
+  ActionMailer::Base.add_delivery_method :resend, ResendDeliveryMethod, api_key: ENV["RESEND_API_KEY"]
+  config.action_mailer.delivery_method = :resend
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
   # the I18n.default_locale when a translation cannot be found).

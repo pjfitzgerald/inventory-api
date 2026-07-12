@@ -39,6 +39,11 @@ gem "bootsnap", require: false
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin AJAX possible
 gem "rack-cors"
 
+# Resend's HTTP API for outbound mail — smtp.resend.com is unreachable from
+# Railway's network (times out on every port), while api.resend.com:443
+# connects fine, so mail goes out over HTTPS instead of raw SMTP.
+gem "resend"
+
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri mingw x64_mingw ]

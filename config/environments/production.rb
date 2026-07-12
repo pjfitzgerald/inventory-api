@@ -62,8 +62,9 @@ Rails.application.configure do
   # port times out), while api.resend.com:443 connects fine. RESEND_API_KEY
   # must be set in the deploy environment; the sender address comes from
   # MAIL_FROM (see ApplicationMailer) and its domain needs Resend DKIM/SPF
-  # DNS records. See app/lib/resend_delivery_method.rb.
-  ActionMailer::Base.add_delivery_method :resend, ResendDeliveryMethod, api_key: ENV["RESEND_API_KEY"]
+  # DNS records. Delivery method itself is registered in
+  # config/initializers/resend_delivery_method.rb — app/lib classes aren't
+  # autoloadable yet at this point in boot.
   config.action_mailer.delivery_method = :resend
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to

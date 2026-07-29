@@ -2,38 +2,65 @@ require "test_helper"
 
 class UserTest < ActiveSupport::TestCase
   test "is valid with email and password" do
-    user = User.new(email: "valid@example.com", password: "password123")
+    user = User.new(email: "valid@example.com", password: "correcthorsebattery")
     assert user.valid?
   end
 
   test "requires an email" do
-    user = User.new(password: "password123")
+    user = User.new(password: "correcthorsebattery")
     assert_not user.valid?
   end
 
   test "rejects a malformed email" do
-    user = User.new(email: "not-an-email", password: "password123")
+    user = User.new(email: "not-an-email", password: "correcthorsebattery")
     assert_not user.valid?
   end
 
   test "requires a unique email, case-insensitively" do
-    user = User.new(email: users(:alice).email.upcase, password: "password123")
+    user = User.new(email: users(:alice).email.upcase, password: "correcthorsebattery")
     assert_not user.valid?
   end
 
   test "normalizes email to lowercase and strips whitespace" do
-    user = User.create!(email: "  Mixed@Example.COM ", password: "password123")
+    user = User.create!(email: "  Mixed@Example.COM ", password: "correcthorsebattery")
     assert_equal "mixed@example.com", user.email
   end
 
-  test "requires a password of at least 8 characters" do
-    user = User.new(email: "short@example.com", password: "abc")
+  test "requires a password of at least the minimum length" do
+    user = User.new(email: "short@example.com", password: "a" * (User::PASSWORD_MIN_LENGTH - 1))
     assert_not user.valid?
+    assert user.errors.of_kind?(:password, :too_short)
+  end
+
+  # bcrypt silently ignores anything past 72 bytes, so a longer password is
+  # rejected rather than half-honoured.
+  test "rejects a password longer than bcrypt's 72-byte limit" do
+    user = User.new(email: "long@example.com", password: "a" * (User::PASSWORD_MAX_LENGTH + 1))
+    assert_not user.valid?
+    assert user.errors.of_kind?(:password, :too_long)
+  end
+
+  test "rejects a common password, including dressed-up variants" do
+    %w[password!! Password123 letmein!!! monkey2024 qwerty99!! 1234567890].each do |candidate|
+      user = User.new(email: "common@example.com", password: candidate)
+      assert_not user.valid?, "expected #{candidate.inspect} to be rejected"
+    end
+  end
+
+  test "rejects a password containing the email local part" do
+    user = User.new(email: "jellyfish@example.com", password: "myJellyFishPass")
+    assert_not user.valid?
+    assert_includes user.errors[:password], 'must not contain your email address'
+  end
+
+  test "accepts a long unremarkable password" do
+    user = User.new(email: "fine@example.com", password: "tangerine-shelf-lamp")
+    assert user.valid?, user.errors.full_messages.to_sentence
   end
 
   test "authenticates with the correct password" do
-    user = User.create!(email: "auth@example.com", password: "password123")
-    assert user.authenticate("password123")
+    user = User.create!(email: "auth@example.com", password: "correcthorsebattery")
+    assert user.authenticate("correcthorsebattery")
     assert_not user.authenticate("wrong")
   end
 
@@ -50,7 +77,7 @@ class UserTest < ActiveSupport::TestCase
   end
 
   test "destroying a user destroys their items" do
-    user = User.create!(email: "owner@example.test", password: "password123")
+    user = User.create!(email: "owner@example.test", password: "correcthorsebattery")
     user.items.create!(name: "Doomed item")
     assert_difference("Item.count", -1) { user.destroy }
   end

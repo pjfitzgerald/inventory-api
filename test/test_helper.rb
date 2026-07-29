@@ -9,6 +9,12 @@ class ActiveSupport::TestCase
   # Setup all fixtures in test/fixtures/*.yml for all tests in alphabetical order.
   fixtures :all
 
+  # Rack::Attack's counters live in a process-wide store, so without this a
+  # test that posts to /auth/signup would spend the budget of every later
+  # test in the same worker (and which tests share a worker depends on the
+  # seed). Each test starts from a clean slate.
+  setup { Rack::Attack.cache.store.clear }
+
   # Add more helper methods to be used by all tests here...
 end
 

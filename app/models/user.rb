@@ -6,10 +6,31 @@ class User < ApplicationRecord
   # A password-reset link is only usable for a short window after it is issued.
   PASSWORD_RESET_TTL = 2.hours
 
+  # Length is the control that actually matters (NIST SP 800-63B); character
+  # class rules mostly push people towards "Password1!". The maximum isn't
+  # arbitrary — bcrypt silently truncates at 72 bytes, so anything longer
+  # would make the tail of the password meaningless rather than rejected.
+  PASSWORD_MIN_LENGTH = 10
+  PASSWORD_MAX_LENGTH = 72
+
+  # A blocklist can't be exhaustive; this just catches the handful of
+  # passwords that dominate credential-stuffing lists. Matched both literally
+  # and with case plus any trailing digits/punctuation stripped, so
+  # "Password123!" is caught as well as "password".
+  COMMON_PASSWORDS = %w[
+    password passw0rd pass letmein welcome monkey dragon iloveyou admin
+    administrator qwerty qwertyuiop asdfgh zxcvbn abcdef abc123 123456
+    1234567890 football baseball sunshine princess trustno1 starwars
+    inventory changeme secret
+  ].freeze
+
   validates :email, presence: true,
                     uniqueness: { case_sensitive: false },
                     format: { with: URI::MailTo::EMAIL_REGEXP }
-  validates :password, length: { minimum: 8 }, allow_nil: true
+  validates :password,
+            length: { minimum: PASSWORD_MIN_LENGTH, maximum: PASSWORD_MAX_LENGTH },
+            allow_nil: true
+  validate :password_is_not_obvious
 
   before_validation :normalize_email
 
@@ -54,6 +75,30 @@ class User < ApplicationRecord
   end
 
   private
+
+  # Reject the passwords an attacker would try first: known-common ones, and
+  # anything derived from the account's own email address (which is the one
+  # string an attacker is guaranteed to already have).
+  def password_is_not_obvious
+    return if password.blank?
+
+    # Check the password as typed, and again with case and any trailing
+    # digits/punctuation stripped, so the usual dodges — "Password1",
+    # "monkey2024", "letmein!" — are recognised as the common passwords they
+    # are, while all-numeric entries still match literally.
+    downcased = password.downcase
+    candidates = [downcased, downcased.sub(/[^a-z]+\z/, '')]
+
+    if candidates.any? { |candidate| COMMON_PASSWORDS.include?(candidate) }
+      errors.add(:password, 'is too common — pick something less guessable')
+      return
+    end
+
+    local_part = email.to_s.split('@').first.to_s
+    if local_part.length >= 3 && password.downcase.include?(local_part.downcase)
+      errors.add(:password, 'must not contain your email address')
+    end
+  end
 
   def normalize_email
     self.email = email.to_s.strip.downcase

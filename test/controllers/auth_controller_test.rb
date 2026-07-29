@@ -4,7 +4,7 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
   test "signup creates an unverified user and returns a verification token" do
     assert_difference("User.count", 1) do
       post api_v1_auth_signup_url,
-           params: { email: "new@example.com", password: "password123", name: "New" },
+           params: { email: "new@example.com", password: "correcthorsebattery", name: "New" },
            as: :json
     end
     assert_response :created
@@ -18,7 +18,7 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
     with_rails_env("production") do
       ENV.delete("EXPOSE_AUTH_TOKENS")
       post api_v1_auth_signup_url,
-           params: { email: "prod@example.com", password: "password123" },
+           params: { email: "prod@example.com", password: "correcthorsebattery" },
            as: :json
     end
     assert_response :created
@@ -31,7 +31,7 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
       ENV["EXPOSE_AUTH_TOKENS"] = "true"
       begin
         post api_v1_auth_signup_url,
-             params: { email: "staging@example.com", password: "password123" },
+             params: { email: "staging@example.com", password: "correcthorsebattery" },
              as: :json
       ensure
         ENV.delete("EXPOSE_AUTH_TOKENS")
@@ -45,7 +45,7 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
   test "signup rejects a duplicate email" do
     assert_no_difference("User.count") do
       post api_v1_auth_signup_url,
-           params: { email: users(:alice).email, password: "password123" },
+           params: { email: users(:alice).email, password: "correcthorsebattery" },
            as: :json
     end
     assert_response :unprocessable_entity
@@ -60,14 +60,14 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
 
   test "signup rejects a malformed email" do
     post api_v1_auth_signup_url,
-         params: { email: "not-an-email", password: "password123" },
+         params: { email: "not-an-email", password: "correcthorsebattery" },
          as: :json
     assert_response :unprocessable_entity
   end
 
   test "login is forbidden until the email is verified" do
     post api_v1_auth_login_url,
-         params: { email: users(:unverified).email, password: "password123" },
+         params: { email: users(:unverified).email, password: "correcthorsebattery" },
          as: :json
     assert_response :forbidden
   end
@@ -81,14 +81,14 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
 
   test "login rejects an unknown email" do
     post api_v1_auth_login_url,
-         params: { email: "nobody@example.com", password: "password123" },
+         params: { email: "nobody@example.com", password: "correcthorsebattery" },
          as: :json
     assert_response :unauthorized
   end
 
   test "login returns a token for a verified user" do
     post api_v1_auth_login_url,
-         params: { email: users(:alice).email, password: "password123" },
+         params: { email: users(:alice).email, password: "correcthorsebattery" },
          as: :json
     assert_response :success
     assert JSON.parse(response.body)["token"].present?
@@ -109,12 +109,12 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
 
   test "full signup, verify, login flow" do
     post api_v1_auth_signup_url,
-         params: { email: "flow@example.com", password: "password123" },
+         params: { email: "flow@example.com", password: "correcthorsebattery" },
          as: :json
     token = JSON.parse(response.body)["verification_token"]
 
     post api_v1_auth_login_url,
-         params: { email: "flow@example.com", password: "password123" },
+         params: { email: "flow@example.com", password: "correcthorsebattery" },
          as: :json
     assert_response :forbidden
 
@@ -122,7 +122,7 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
 
     post api_v1_auth_login_url,
-         params: { email: "flow@example.com", password: "password123" },
+         params: { email: "flow@example.com", password: "correcthorsebattery" },
          as: :json
     assert_response :success
   end
@@ -146,7 +146,7 @@ class Api::V1::AuthControllerTest < ActionDispatch::IntegrationTest
   test "signup sends a verification email" do
     assert_difference -> { ActionMailer::Base.deliveries.size }, 1 do
       post api_v1_auth_signup_url,
-           params: { email: "mailer@example.com", password: "password123" },
+           params: { email: "mailer@example.com", password: "correcthorsebattery" },
            as: :json
     end
     assert_equal ["mailer@example.com"], ActionMailer::Base.deliveries.last.to

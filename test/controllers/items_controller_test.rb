@@ -53,6 +53,63 @@ class Api::V1::ItemsControllerTest < ActionDispatch::IntegrationTest
     assert_equal @user.id, Item.find(body["id"]).user_id
   end
 
+  # The CSV / JSON backup import replays the exported created_at and
+  # updated_at rather than letting them reset to import time, so a restored
+  # inventory keeps its real history. Rails only auto-stamps timestamps that
+  # aren't already set, so passing them through must survive a create.
+  test "create preserves supplied created_at and updated_at" do
+    created = Time.utc(2021, 3, 4, 5, 6, 7)
+    updated = Time.utc(2022, 8, 9, 10, 11, 12)
+
+    post api_v1_items_url,
+         params: { item: { name: "Imported Item",
+                           created_at: created.iso8601,
+                           updated_at: updated.iso8601 } },
+         headers: auth_headers(@user)
+
+    assert_response :created
+    item = Item.find(JSON.parse(response.body)["id"])
+    assert_equal created, item.created_at
+    assert_equal updated, item.updated_at
+  end
+
+  # Every other column the CSV exporter writes must be accepted back on
+  # import — a field the controller doesn't permit would be silently dropped
+  # and the round trip would lose data.
+  test "create accepts every field the CSV export writes" do
+    attrs = {
+      name: "Full Item",
+      quantity: 3,
+      category: "electronics",
+      tags: %w[one two],
+      current_location: "Shed",
+      weight: "1.5",
+      owner: "PJF",
+      intended_location: "Garage",
+      notes: "some notes",
+      location_notes: "top shelf",
+      status: "Sell",
+      custom_fields: { "serial_number" => "ABC123" }
+    }
+
+    post api_v1_items_url, params: { item: attrs }, headers: auth_headers(@user)
+
+    assert_response :created
+    item = Item.find(JSON.parse(response.body)["id"])
+    assert_equal "Full Item", item.name
+    assert_equal 3, item.quantity
+    assert_equal "electronics", item.category
+    assert_equal %w[one two], item.tags
+    assert_equal "Shed", item.current_location
+    assert_equal 1.5, item.weight
+    assert_equal "PJF", item.owner
+    assert_equal "Garage", item.intended_location
+    assert_equal "some notes", item.notes
+    assert_equal "top shelf", item.location_notes
+    assert_equal "Sell", item.status
+    assert_equal({ "serial_number" => "ABC123" }, item.custom_fields)
+  end
+
   test "create fails without name" do
     assert_no_difference("Item.count") do
       post api_v1_items_url,

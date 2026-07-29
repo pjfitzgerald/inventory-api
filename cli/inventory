@@ -4,7 +4,7 @@
 # Inventory CLI — a single, dependency-free script (Ruby standard library only).
 #
 # Download and run directly, no `bundle install` / gem install required:
-#   curl -o inventory https://raw.githubusercontent.com/<org>/inventory-api/master/cli/inventory
+#   curl -o inventory https://raw.githubusercontent.com/pjfitzgerald/inventory-api/master/cli/inventory
 #   chmod +x inventory
 #   ./inventory auth login --email you@example.com --password <password>
 #   ./inventory list

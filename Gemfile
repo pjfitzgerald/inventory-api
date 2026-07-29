@@ -39,6 +39,11 @@ gem "bootsnap", require: false
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin AJAX possible
 gem "rack-cors"
 
+# Request throttling for the auth endpoints — the app is on the public
+# internet, so signup/login/password-reset need brute-force and abuse limits.
+# See config/initializers/rack_attack.rb.
+gem "rack-attack"
+
 # Resend's HTTP API for outbound mail — smtp.resend.com is unreachable from
 # Railway's network (times out on every port), while api.resend.com:443
 # connects fine, so mail goes out over HTTPS instead of raw SMTP.

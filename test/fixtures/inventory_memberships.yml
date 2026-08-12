@@ -1,0 +1,24 @@
+alice_personal_owner:
+  inventory: alice_personal
+  user: alice
+  role: owner
+
+bob_personal_owner:
+  inventory: bob_personal
+  user: bob
+  role: owner
+
+unverified_personal_owner:
+  inventory: unverified_personal
+  user: unverified
+  role: owner
+
+household_owner:
+  inventory: shared_household
+  user: alice
+  role: owner
+
+household_editor:
+  inventory: shared_household
+  user: bob
+  role: editor

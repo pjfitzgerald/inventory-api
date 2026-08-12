@@ -1,0 +1,24 @@
+# Fixture rows skip model callbacks, so the personal inventories users would
+# normally get on signup are declared here (and their owner memberships in
+# inventory_memberships.yml).
+
+alice_personal:
+  name: Personal
+  owner: alice
+  personal: true
+
+bob_personal:
+  name: Personal
+  owner: bob
+  personal: true
+
+unverified_personal:
+  name: Personal
+  owner: unverified
+  personal: true
+
+# Alice's shared inventory. Bob is an editor on it — see the memberships.
+shared_household:
+  name: Household
+  owner: alice
+  personal: false

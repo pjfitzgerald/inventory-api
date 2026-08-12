@@ -15,6 +15,15 @@ class ActiveSupport::TestCase
   # seed). Each test starts from a clean slate.
   setup { Rack::Attack.cache.store.clear }
 
+  # Items live in an inventory and record who created them. Unless a specific
+  # inventory is given, put the item in the user's personal one — which is
+  # what the app does for anyone who has not shared anything.
+  def create_item(user, attributes = {})
+    attributes = attributes.dup
+    inventory = attributes.delete(:inventory) || user.personal_inventory
+    inventory.items.create!(attributes.merge(user: user))
+  end
+
   # Add more helper methods to be used by all tests here...
 end
 

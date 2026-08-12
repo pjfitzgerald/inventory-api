@@ -1,5 +1,8 @@
 class Item < ApplicationRecord
-    belongs_to :user
+    belongs_to :inventory
+    # Who added the item. Access is decided by the inventory, not by this —
+    # and it is left behind (null) if the author deletes their account.
+    belongs_to :user, optional: true
 
     validates :name, presence: true
 

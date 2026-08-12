@@ -1,23 +1,29 @@
 module Api
   module V1
     class ItemsController < ApplicationController
+      # Reads are open to every member of the inventory; writes need at least
+      # editor. Which inventory is in play comes from `?inventory_id=`, and
+      # defaults to the user's personal one so existing clients keep working.
+      before_action :require_edit_access!, only: %i[create]
+      before_action :load_item, only: %i[show update destroy]
+      before_action :require_item_edit_access!, only: %i[update destroy]
+
       def index
         @items = if params[:query].present?
-          current_user.items.search(params[:query])
+          current_inventory.items.search(params[:query])
         else
-          current_user.items
+          current_inventory.items
         end
 
         render json: @items
       end
 
       def show
-        @item = current_user.items.find(params[:id])
         render json: @item
       end
 
       def create
-        @item = current_user.items.new(item_params)
+        @item = current_inventory.items.new(item_params.merge(user: current_user))
         if @item.save
           render json: @item, status: :created
         else
@@ -26,7 +32,6 @@ module Api
       end
 
       def update
-        @item = current_user.items.find(params[:id])
         if @item.update(item_params)
           render json: @item
         else
@@ -35,13 +40,26 @@ module Api
       end
 
       def destroy
-        @item = current_user.items.find(params[:id])
         @item.destroy
         head :no_content
       end
 
       private
-      
+
+      # An item is addressed by id alone, so find it across everything the user
+      # can reach rather than only the inventory named in the request.
+      def load_item
+        @item = Item.where(inventory: accessible_inventories).find(params[:id])
+      end
+
+      # Editing is gated on the role in the item's own inventory.
+      def require_item_edit_access!
+        return if @item.inventory.membership_for(current_user)&.can_edit_items?
+
+        render json: { error: 'You have view-only access to this inventory' },
+               status: :forbidden
+      end
+
       def item_params
         params.require(:item).permit(
           :name,

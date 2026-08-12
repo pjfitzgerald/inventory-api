@@ -14,9 +14,11 @@ else
   puts "Using existing owner user #{owner.email}"
 end
 
-# Clear this owner's existing items
-puts "Clearing existing items for #{owner.email}..."
-owner.items.destroy_all
+# Seeded items go into the owner's personal inventory.
+inventory = owner.personal_inventory
+
+puts "Clearing existing items in #{owner.email}'s personal inventory..."
+inventory.items.destroy_all
 
 # Load seed data from CSV
 csv_path = Rails.root.join('data', 'seed-data.csv')
@@ -46,7 +48,8 @@ CSV.foreach(csv_path, headers: true, liberal_parsing: true) do |row|
     next
   end
 
-  owner.items.create!(
+  inventory.items.create!(
+    user: owner,
     name: row['item'],
     quantity: row['quantity'].presence&.to_i,
     category: row['category'].presence,

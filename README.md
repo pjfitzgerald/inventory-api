@@ -65,6 +65,26 @@ inventory delete 42
 
 `inventory --help` prints the full command and option list.
 
+### Shared inventories
+
+Every account has a personal inventory, and can be given access to inventories
+other people own. Item commands act on your personal one unless you name
+another with `--inventory`:
+
+```sh
+inventory inventories --format table        # what you can reach, and your role in each
+inventory list --inventory 7                # items in the shared inventory with id 7
+inventory create --inventory 7 --name 'Lawnmower'
+```
+
+`show`, `update`, and `delete` take an item id and find it wherever you can
+reach it, so they need no `--inventory`.
+
+Roles are set by the inventory's owner in the web app — the CLI reads them but
+does not change them. An **owner** can do anything, an **editor** can add,
+change, and delete items, and a **viewer** can only read: a viewer's write is
+refused with "You have view-only access to this inventory".
+
 ### Options worth knowing
 
 | Option | Purpose |
@@ -73,6 +93,7 @@ inventory delete 42
 | `--url=URL` | Point at a different deployment. Defaults to `$INVENTORY_API_URL`, then the public instance. |
 | `--field=key:value` | Set a custom field on `create` / `update`. Repeatable. |
 | `--tags=a,b,c` | Comma-separated; replaces the item's tags. |
+| `--inventory=ID` | Act on a shared inventory instead of your personal one. |
 
 Environment variables:
 

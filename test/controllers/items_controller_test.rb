@@ -4,7 +4,9 @@ class Api::V1::ItemsControllerTest < ActionDispatch::IntegrationTest
   setup do
     @user = users(:alice)
     @other = users(:bob)
-    @item = @user.items.create!(name: "Test Item", category: "electronics", status: "Keep")
+    # Alice owns Household; Bob is an editor on it.
+    @household = inventories(:shared_household)
+    @item = create_item(@user, name: "Test Item", category: "electronics", status: "Keep")
   end
 
   test "requires authentication" do
@@ -13,7 +15,7 @@ class Api::V1::ItemsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "index returns only the current user's items" do
-    other_item = @other.items.create!(name: "Bob's Item")
+    other_item = create_item(@other, name: "Bob's Item")
     get api_v1_items_url, headers: auth_headers(@user)
     assert_response :success
     ids = JSON.parse(response.body).map { |i| i["id"] }
@@ -22,7 +24,7 @@ class Api::V1::ItemsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "index with query filters the current user's items" do
-    @user.items.create!(name: "Keyboard", category: "electronics")
+    create_item(@user, name: "Keyboard", category: "electronics")
     get api_v1_items_url, params: { query: "Keyboard" }, headers: auth_headers(@user)
     assert_response :success
     items = JSON.parse(response.body)
@@ -36,7 +38,7 @@ class Api::V1::ItemsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "show 404s for another user's item" do
-    other_item = @other.items.create!(name: "Bob's Item")
+    other_item = create_item(@other, name: "Bob's Item")
     get api_v1_item_url(other_item), headers: auth_headers(@user)
     assert_response :not_found
   end
@@ -128,7 +130,7 @@ class Api::V1::ItemsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "update 404s for another user's item" do
-    other_item = @other.items.create!(name: "Bob's Item")
+    other_item = create_item(@other, name: "Bob's Item")
     patch api_v1_item_url(other_item),
           params: { item: { name: "Hacked" } },
           headers: auth_headers(@user)
@@ -144,10 +146,101 @@ class Api::V1::ItemsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "destroy 404s for another user's item" do
-    other_item = @other.items.create!(name: "Bob's Item")
+    other_item = create_item(@other, name: "Bob's Item")
     assert_no_difference("Item.count") do
       delete api_v1_item_url(other_item), headers: auth_headers(@user)
     end
     assert_response :not_found
+  end
+
+  # --- shared inventories ---------------------------------------------------
+
+  test "index defaults to the caller's personal inventory" do
+    shared_item = create_item(@user, name: "Shared thing", inventory: @household)
+    get api_v1_items_url, headers: auth_headers(@user)
+    assert_response :success
+    ids = JSON.parse(response.body).map { |i| i["id"] }
+    assert_includes ids, @item.id
+    assert_not_includes ids, shared_item.id
+  end
+
+  test "index returns a shared inventory's items when asked for it" do
+    shared_item = create_item(@user, name: "Shared thing", inventory: @household)
+    get api_v1_items_url, params: { inventory_id: @household.id }, headers: auth_headers(@other)
+    assert_response :success
+    ids = JSON.parse(response.body).map { |i| i["id"] }
+    assert_equal [shared_item.id], ids
+  end
+
+  test "index 404s for an inventory the caller is not a member of" do
+    stranger_inventory = Inventory.create!(name: "Stranger's", owner: users(:unverified))
+    get api_v1_items_url, params: { inventory_id: stranger_inventory.id },
+                          headers: auth_headers(@user)
+    assert_response :not_found
+  end
+
+  test "create puts the item in the requested shared inventory" do
+    post api_v1_items_url,
+         params: { inventory_id: @household.id, item: { name: "Lawnmower" } },
+         headers: auth_headers(@other)
+    assert_response :created
+    item = Item.find(JSON.parse(response.body)["id"])
+    assert_equal @household, item.inventory
+    assert_equal @other, item.user, "The item records who added it"
+  end
+
+  test "show returns an item from a shared inventory" do
+    shared_item = create_item(@user, name: "Shared thing", inventory: @household)
+    get api_v1_item_url(shared_item), headers: auth_headers(@other)
+    assert_response :success
+  end
+
+  test "a member can update another member's item" do
+    shared_item = create_item(@user, name: "Shared thing", inventory: @household)
+    patch api_v1_item_url(shared_item), params: { item: { name: "Renamed" } },
+                                        headers: auth_headers(@other)
+    assert_response :success
+    assert_equal "Renamed", shared_item.reload.name
+  end
+
+  test "a viewer can read but not create" do
+    demote_bob_to_viewer
+    get api_v1_items_url, params: { inventory_id: @household.id }, headers: auth_headers(@other)
+    assert_response :success
+
+    assert_no_difference("Item.count") do
+      post api_v1_items_url,
+           params: { inventory_id: @household.id, item: { name: "Nope" } },
+           headers: auth_headers(@other)
+    end
+    assert_response :forbidden
+  end
+
+  test "a viewer cannot update or delete an item" do
+    shared_item = create_item(@user, name: "Shared thing", inventory: @household)
+    demote_bob_to_viewer
+
+    patch api_v1_item_url(shared_item), params: { item: { name: "Nope" } },
+                                        headers: auth_headers(@other)
+    assert_response :forbidden
+    assert_equal "Shared thing", shared_item.reload.name
+
+    assert_no_difference("Item.count") do
+      delete api_v1_item_url(shared_item), headers: auth_headers(@other)
+    end
+    assert_response :forbidden
+  end
+
+  test "a viewer role on one inventory does not restrict their own" do
+    demote_bob_to_viewer
+    post api_v1_items_url, params: { item: { name: "Bob's own thing" } },
+                           headers: auth_headers(@other)
+    assert_response :created
+  end
+
+  private
+
+  def demote_bob_to_viewer
+    inventory_memberships(:household_editor).update!(role: "viewer")
   end
 end

@@ -78,7 +78,7 @@ class UserTest < ActiveSupport::TestCase
 
   test "destroying a user destroys their items" do
     user = User.create!(email: "owner@example.test", password: "correcthorsebattery")
-    user.items.create!(name: "Doomed item")
+    create_item(user, name: "Doomed item")
     assert_difference("Item.count", -1) { user.destroy }
   end
 

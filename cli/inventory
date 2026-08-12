@@ -62,17 +62,21 @@ class Client
     end
   end
 
-  def initialize(base_url: ENV.fetch('INVENTORY_API_URL', DEFAULT_API_URL), token: TokenStore.read)
+  def initialize(base_url: ENV.fetch('INVENTORY_API_URL', DEFAULT_API_URL), token: TokenStore.read,
+                 inventory_id: nil)
     @base_url = base_url.chomp('/')
     @token = token
+    # Which inventory item commands act on. Nil means the account's personal
+    # one, which is what the API assumes when none is named.
+    @inventory_id = inventory_id
   end
 
   # --- items ---
 
   def list(query: nil)
-    path = '/items'
-    path += "?query=#{URI.encode_www_form_component(query)}" if query
-    request(Net::HTTP::Get, path)
+    params = {}
+    params['query'] = query if query
+    request(Net::HTTP::Get, scoped('/items', params))
   end
 
   def show(id)
@@ -80,7 +84,7 @@ class Client
   end
 
   def create(attrs)
-    request(Net::HTTP::Post, '/items', body: { item: attrs })
+    request(Net::HTTP::Post, scoped('/items'), body: { item: attrs })
   end
 
   def update(id, attrs)
@@ -89,6 +93,12 @@ class Client
 
   def destroy(id)
     request(Net::HTTP::Delete, "/items/#{id}")
+  end
+
+  # --- inventories ---
+
+  def inventories
+    request(Net::HTTP::Get, '/inventories')
   end
 
   # --- auth ---
@@ -118,6 +128,14 @@ class Client
   end
 
   private
+
+  # Adds the selected inventory (and any other params) to a path.
+  def scoped(path, params = {})
+    params = params.merge('inventory_id' => @inventory_id) if @inventory_id
+    return path if params.empty?
+
+    "#{path}?#{URI.encode_www_form(params)}"
+  end
 
   def request(method_class, path, body: nil)
     uri = URI("#{@base_url}#{path}")
@@ -180,7 +198,10 @@ module Formatters
     records = data.is_a?(Array) ? data : [data]
     return '(empty)' if records.empty?
 
-    cols = %w[id name quantity category status tags current_location]
+    # Items get a fixed, useful column order; anything else (inventories)
+    # falls back to whatever fields the record actually has.
+    item_cols = %w[id name quantity category status tags current_location]
+    cols = item_cols.all? { |c| records.first.key?(c) } ? item_cols : records.first.keys
     rows = records.map { |r| cols.map { |c| format_cell(r[c]) } }
     widths = cols.each_with_index.map { |c, i| ([c.length] + rows.map { |row| row[i].length }).max }
 
@@ -204,7 +225,7 @@ end
 # ---- CLI dispatch ----
 
 USAGE = <<~USAGE
-  Usage: inventory [--url=URL] [--format=json|table] <command> [options]
+  Usage: inventory [--url=URL] [--format=json|table] [--inventory=ID] <command> [options]
 
   Auth commands:
     auth login --email=EMAIL --password=PASSWORD     Log in and store an auth token
@@ -216,6 +237,11 @@ USAGE = <<~USAGE
     auth reset-password --token=TOKEN --password=PASSWORD
                                                        Set a new password
     auth whoami                                       Show the current user
+
+  Inventory commands:
+    inventories                                       List inventories you can reach
+                                                       (your personal one, plus any shared
+                                                        with you) and your role in each
 
   Item commands:
     list [--query=TEXT]                               List items
@@ -235,6 +261,11 @@ USAGE = <<~USAGE
     --format=json|table              Output format (default: json)
     --url=URL                        API base URL
                                       (default: $INVENTORY_API_URL or #{DEFAULT_API_URL})
+    --inventory=ID                   Act on a shared inventory (see `inventories`);
+                                      defaults to your personal one
+
+  Sharing is managed in the web app: only members can read an inventory, and
+  a viewer's writes are refused.
 
   Auth: token is saved to ~/.config/inventory/token after login/signup/verify.
   Override per-invocation with INVENTORY_API_TOKEN.
@@ -255,6 +286,8 @@ def extract_global_options!(argv, opts)
     when '--format' then argv.delete_at(i); opts[:format] = argv.delete_at(i)
     when /\A--url=(.+)\z/ then opts[:url] = Regexp.last_match(1); argv.delete_at(i)
     when '--url' then argv.delete_at(i); opts[:url] = argv.delete_at(i)
+    when /\A--inventory=(.+)\z/ then opts[:inventory_id] = Regexp.last_match(1); argv.delete_at(i)
+    when '--inventory' then argv.delete_at(i); opts[:inventory_id] = argv.delete_at(i)
     else i += 1
     end
   end
@@ -286,7 +319,10 @@ def parse_item_options(argv)
 end
 
 def client_for(opts)
-  Client.new(**(opts[:url] ? { base_url: opts[:url] } : {}))
+  args = {}
+  args[:base_url] = opts[:url] if opts[:url]
+  args[:inventory_id] = opts[:inventory_id] if opts[:inventory_id]
+  Client.new(**args)
 end
 
 def require_auth!
@@ -372,6 +408,9 @@ begin
   case command
   when 'auth'
     run_auth(argv, opts)
+  when 'inventories'
+    require_auth!
+    Formatters.render(client_for(opts).inventories, format: opts[:format])
   when 'list'
     require_auth!
     query = nil

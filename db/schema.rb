@@ -10,10 +10,31 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.0].define(version: 2026_05_19_120000) do
+ActiveRecord::Schema[7.0].define(version: 2026_08_12_090000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "plpgsql"
+
+  create_table "inventories", force: :cascade do |t|
+    t.string "name", null: false
+    t.bigint "owner_id", null: false
+    t.boolean "personal", default: false, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["owner_id"], name: "index_inventories_on_one_personal_per_owner", unique: true, where: "personal"
+    t.index ["owner_id"], name: "index_inventories_on_owner_id"
+  end
+
+  create_table "inventory_memberships", force: :cascade do |t|
+    t.bigint "inventory_id", null: false
+    t.bigint "user_id", null: false
+    t.string "role", default: "editor", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["inventory_id", "user_id"], name: "index_memberships_on_inventory_and_user", unique: true
+    t.index ["inventory_id"], name: "index_inventory_memberships_on_inventory_id"
+    t.index ["user_id"], name: "index_inventory_memberships_on_user_id"
+  end
 
   create_table "items", force: :cascade do |t|
     t.integer "quantity"
@@ -30,7 +51,9 @@ ActiveRecord::Schema[7.0].define(version: 2026_05_19_120000) do
     t.datetime "updated_at", null: false
     t.string "status", default: "Keep"
     t.jsonb "custom_fields", default: {}
-    t.bigint "user_id", null: false
+    t.bigint "user_id"
+    t.bigint "inventory_id", null: false
+    t.index ["inventory_id"], name: "index_items_on_inventory_id"
     t.index ["user_id"], name: "index_items_on_user_id"
   end
 
@@ -49,5 +72,9 @@ ActiveRecord::Schema[7.0].define(version: 2026_05_19_120000) do
     t.index ["password_reset_token"], name: "index_users_on_password_reset_token", unique: true
   end
 
+  add_foreign_key "inventories", "users", column: "owner_id"
+  add_foreign_key "inventory_memberships", "inventories"
+  add_foreign_key "inventory_memberships", "users"
+  add_foreign_key "items", "inventories"
   add_foreign_key "items", "users"
 end

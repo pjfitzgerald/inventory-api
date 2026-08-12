@@ -13,6 +13,7 @@ one:
   location_notes: On the shelf
   status: Keep
   user: alice
+  inventory: alice_personal
 
 two:
   name: Fixture Item Two
@@ -27,3 +28,4 @@ two:
   location_notes: On desk
   status: Sell
   user: alice
+  inventory: alice_personal

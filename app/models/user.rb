@@ -1,7 +1,17 @@
 class User < ApplicationRecord
   has_secure_password
 
-  has_many :items, dependent: :destroy
+  # Items this user created. They live in an inventory, not on the user, so
+  # deleting the account leaves anything they added to a shared inventory in
+  # place — it just loses its author.
+  has_many :items, dependent: :nullify
+
+  has_many :inventory_memberships, dependent: :destroy
+  has_many :inventories, through: :inventory_memberships
+  has_many :owned_inventories, class_name: 'Inventory',
+                               foreign_key: :owner_id,
+                               dependent: :destroy,
+                               inverse_of: :owner
 
   # A password-reset link is only usable for a short window after it is issued.
   PASSWORD_RESET_TTL = 2.hours
@@ -33,6 +43,21 @@ class User < ApplicationRecord
   validate :password_is_not_obvious
 
   before_validation :normalize_email
+
+  # Accounts created through signup get their inventory here. Fixtures and any
+  # rows inserted straight into the table skip callbacks, so `personal_inventory`
+  # also creates one on demand.
+  after_create :ensure_personal_inventory!
+
+  # The inventory a user gets by default and cannot delete or leave.
+  def personal_inventory
+    inventories.personal.first || ensure_personal_inventory!
+  end
+
+  def ensure_personal_inventory!
+    inventories.personal.first ||
+      Inventory.create!(name: 'Personal', owner: self, personal: true)
+  end
 
   # Issue a fresh verification token; caller is responsible for saving.
   def start_email_verification!

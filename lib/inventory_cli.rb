@@ -110,7 +110,7 @@ module InventoryCLI
     subcommand 'auth', Auth
 
     desc 'list', 'List items, optionally filtered by --query'
-    option :query, type: :string, desc: 'Search across name, category, tags, current_location'
+    option :query, type: :string, desc: 'Search across name, category, tags, location, sublocation'
     def list
       items = client.list(query: options[:query])
       Formatters.render(items, format: options[:format])
@@ -127,6 +127,7 @@ module InventoryCLI
     option :quantity, type: :numeric
     option :category, type: :string
     option :current_location, type: :string
+    option :sublocation, type: :string
     option :intended_location, type: :string
     option :weight, type: :numeric
     option :owner, type: :string
@@ -145,6 +146,7 @@ module InventoryCLI
     option :quantity, type: :numeric
     option :category, type: :string
     option :current_location, type: :string
+    option :sublocation, type: :string
     option :intended_location, type: :string
     option :weight, type: :numeric
     option :owner, type: :string
@@ -163,10 +165,31 @@ module InventoryCLI
       Formatters.render(item, format: options[:format])
     end
 
-    desc 'delete ID', 'Delete an item'
+    desc 'delete ID', 'Move an item to the recycle bin (--permanent to skip it)'
+    option :permanent, type: :boolean, default: false,
+                       desc: 'Delete outright instead of binning'
     def delete(id)
-      client.destroy(id)
-      warn "Deleted item #{id}"
+      client.destroy(id, permanent: options[:permanent])
+      warn(options[:permanent] ? "Deleted item #{id}" : "Binned item #{id} — restore with `inventory restore #{id}`")
+    end
+
+    desc 'trash', 'List items in the recycle bin'
+    def trash
+      body = client.trash
+      warn "Binned items are purged after #{body['retention_days']} days."
+      Formatters.render(body['items'], format: options[:format])
+    end
+
+    desc 'restore ID', 'Bring an item back out of the recycle bin'
+    def restore(id)
+      item = client.restore(id)
+      Formatters.render(item, format: options[:format])
+    end
+
+    desc 'purge', 'Permanently delete everything in the recycle bin'
+    def purge
+      body = client.purge
+      warn "Purged #{body['purged']} item(s)"
     end
 
     private
@@ -183,8 +206,9 @@ module InventoryCLI
       exit 1
     end
 
-    PARAM_KEYS = %w[name quantity category current_location intended_location
-                    weight owner notes location_notes status tags].freeze
+    PARAM_KEYS = %w[name quantity category current_location sublocation
+                    intended_location weight owner notes location_notes status
+                    tags].freeze
 
     def build_attrs(opts)
       attrs = PARAM_KEYS.each_with_object({}) do |key, h|

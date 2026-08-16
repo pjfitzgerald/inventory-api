@@ -138,11 +138,12 @@ class Api::V1::ItemsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Bob's Item", other_item.reload.name
   end
 
-  test "destroy removes the current user's item" do
-    assert_difference("Item.count", -1) do
+  test "destroy bins the current user's item rather than deleting the row" do
+    assert_no_difference("Item.count") do
       delete api_v1_item_url(@item), headers: auth_headers(@user)
     end
     assert_response :no_content
+    assert @item.reload.discarded?
   end
 
   test "destroy 404s for another user's item" do
@@ -151,6 +152,136 @@ class Api::V1::ItemsControllerTest < ActionDispatch::IntegrationTest
       delete api_v1_item_url(other_item), headers: auth_headers(@user)
     end
     assert_response :not_found
+    assert_not other_item.reload.discarded?
+  end
+
+  # --- recycle bin ----------------------------------------------------------
+
+  test "index omits binned items" do
+    @item.discard!
+    get api_v1_items_url, headers: auth_headers(@user)
+    assert_response :success
+    ids = JSON.parse(response.body).map { |i| i["id"] }
+    assert_not_includes ids, @item.id
+  end
+
+  test "search omits binned items" do
+    keyboard = create_item(@user, name: "Keyboard")
+    keyboard.discard!
+    get api_v1_items_url, params: { query: "Keyboard" }, headers: auth_headers(@user)
+    assert_response :success
+    assert_empty JSON.parse(response.body)
+  end
+
+  test "destroy with permanent=true removes the row outright" do
+    assert_difference("Item.count", -1) do
+      delete api_v1_item_url(@item), params: { permanent: true }, headers: auth_headers(@user)
+    end
+    assert_response :no_content
+  end
+
+  test "restore brings a binned item back into the list" do
+    @item.discard!
+    post restore_api_v1_item_url(@item), headers: auth_headers(@user)
+    assert_response :success
+    assert_not @item.reload.discarded?
+
+    get api_v1_items_url, headers: auth_headers(@user)
+    assert_includes JSON.parse(response.body).map { |i| i["id"] }, @item.id
+  end
+
+  test "restoring an item that was never binned is a no-op" do
+    post restore_api_v1_item_url(@item), headers: auth_headers(@user)
+    assert_response :success
+    assert_not @item.reload.discarded?
+  end
+
+  test "restore 404s for another user's item" do
+    other_item = create_item(@other, name: "Bob's Item")
+    other_item.discard!
+    post restore_api_v1_item_url(other_item), headers: auth_headers(@user)
+    assert_response :not_found
+    assert other_item.reload.discarded?
+  end
+
+  test "trash lists only this inventory's binned items" do
+    @item.discard!
+    other_item = create_item(@other, name: "Bob's Item")
+    other_item.discard!
+
+    get trash_api_v1_items_url, headers: auth_headers(@user)
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal [@item.id], body["items"].map { |i| i["id"] }
+    assert_equal Item::TRASH_RETENTION_DAYS, body["retention_days"]
+  end
+
+  test "trash drops items that have sat past the retention window" do
+    @item.discard!
+    @item.update_column(:deleted_at, (Item::TRASH_RETENTION_DAYS + 1).days.ago)
+
+    assert_difference("Item.count", -1) do
+      get trash_api_v1_items_url, headers: auth_headers(@user)
+    end
+    assert_response :success
+    assert_empty JSON.parse(response.body)["items"]
+  end
+
+  test "purge empties this inventory's bin only" do
+    @item.discard!
+    kept = create_item(@user, name: "Still here")
+    shared = create_item(@user, name: "Shared thing", inventory: @household)
+    shared.discard!
+
+    delete purge_api_v1_items_url, headers: auth_headers(@user)
+    assert_response :success
+    assert_equal 1, JSON.parse(response.body)["purged"]
+    assert_not Item.exists?(@item.id)
+    assert Item.exists?(kept.id)
+    assert Item.exists?(shared.id), "another inventory's bin should be untouched"
+  end
+
+  test "a viewer cannot bin, restore, or purge" do
+    shared = create_item(@user, name: "Shared thing", inventory: @household)
+    inventory_memberships(:household_editor).update!(role: "viewer")
+
+    delete api_v1_item_url(shared), headers: auth_headers(@other)
+    assert_response :forbidden
+    assert_not shared.reload.discarded?
+
+    shared.discard!
+    post restore_api_v1_item_url(shared), headers: auth_headers(@other)
+    assert_response :forbidden
+    assert shared.reload.discarded?
+
+    delete purge_api_v1_items_url, params: { inventory_id: @household.id },
+                                   headers: auth_headers(@other)
+    assert_response :forbidden
+    assert Item.exists?(shared.id)
+  end
+
+  # --- sublocation ----------------------------------------------------------
+
+  test "create and update accept a sublocation" do
+    post api_v1_items_url,
+         params: { item: { name: "Torch", current_location: "garage", sublocation: "shelf 3" } },
+         headers: auth_headers(@user)
+    assert_response :created
+    id = JSON.parse(response.body)["id"]
+    assert_equal "shelf 3", Item.find(id).sublocation
+
+    patch api_v1_item_url(id),
+          params: { item: { sublocation: "top drawer" } },
+          headers: auth_headers(@user)
+    assert_response :success
+    assert_equal "top drawer", Item.find(id).sublocation
+  end
+
+  test "search matches on sublocation" do
+    create_item(@user, name: "Torch", current_location: "garage", sublocation: "shelf 3")
+    get api_v1_items_url, params: { query: "shelf 3" }, headers: auth_headers(@user)
+    assert_response :success
+    assert_equal ["Torch"], JSON.parse(response.body).map { |i| i["name"] }
   end
 
   # --- shared inventories ---------------------------------------------------

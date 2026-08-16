@@ -4,18 +4,29 @@ module Api
       # Reads are open to every member of the inventory; writes need at least
       # editor. Which inventory is in play comes from `?inventory_id=`, and
       # defaults to the user's personal one so existing clients keep working.
-      before_action :require_edit_access!, only: %i[create]
-      before_action :load_item, only: %i[show update destroy]
-      before_action :require_item_edit_access!, only: %i[update destroy]
+      before_action :require_edit_access!, only: %i[create trash purge]
+      before_action :load_item, only: %i[show update destroy restore]
+      before_action :require_item_edit_access!, only: %i[update destroy restore]
 
       def index
         @items = if params[:query].present?
-          current_inventory.items.search(params[:query])
+          current_inventory.items.kept.search(params[:query])
         else
-          current_inventory.items
+          current_inventory.items.kept
         end
 
         render json: @items
+      end
+
+      # The recycle bin for this inventory. Listing it is also when expired
+      # items get dropped, so the bin the user sees is the bin that exists.
+      def trash
+        Item.purge_expired!(current_inventory.items)
+
+        render json: {
+          items: current_inventory.items.discarded.order(deleted_at: :desc),
+          retention_days: Item::TRASH_RETENTION_DAYS
+        }
       end
 
       def show
@@ -39,15 +50,37 @@ module Api
         end
       end
 
+      # Soft delete by default. `?permanent=true` skips the bin — used by the
+      # replace-mode CSV import, which clears hundreds of items at once and
+      # would otherwise bury whatever was already in there.
       def destroy
-        @item.destroy
+        if ActiveModel::Type::Boolean.new.cast(params[:permanent])
+          @item.destroy
+        else
+          @item.discard!
+        end
         head :no_content
+      end
+
+      # Undo. Restoring an item that was never deleted is a no-op rather than
+      # an error, so a double-tapped undo is harmless.
+      def restore
+        @item.restore!
+        render json: @item
+      end
+
+      # Empty the bin for this inventory.
+      def purge
+        count = current_inventory.items.discarded.delete_all
+        render json: { purged: count }
       end
 
       private
 
       # An item is addressed by id alone, so find it across everything the user
-      # can reach rather than only the inventory named in the request.
+      # can reach rather than only the inventory named in the request. Deleted
+      # items are included: restore and permanent-delete both need to reach
+      # them, and `show` on a binned item is harmless.
       def load_item
         @item = Item.where(inventory: accessible_inventories).find(params[:id])
       end
@@ -66,6 +99,7 @@ module Api
           :quantity,
           :category,
           :current_location,
+          :sublocation,
           :weight,
           :owner,
           :intended_location,

@@ -1,7 +1,18 @@
 Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
-      resources :items
+      resources :items do
+        # Undo / recycle bin. `trash` and `purge` are declared on the
+        # collection so they land before the `:id` routes and aren't swallowed
+        # by `show`.
+        collection do
+          get :trash
+          delete :purge
+        end
+        member do
+          post :restore
+        end
+      end
 
       resources :inventories, only: %i[index create update destroy] do
         resources :members, only: %i[index create update destroy],

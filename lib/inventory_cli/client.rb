@@ -42,8 +42,23 @@ module InventoryCLI
       request(Net::HTTP::Patch, "/items/#{id}", body: { item: attrs })
     end
 
-    def destroy(id)
-      request(Net::HTTP::Delete, "/items/#{id}")
+    # Bins the item by default; `permanent: true` skips the recycle bin.
+    def destroy(id, permanent: false)
+      path = "/items/#{id}"
+      path += '?permanent=true' if permanent
+      request(Net::HTTP::Delete, path)
+    end
+
+    def trash
+      request(Net::HTTP::Get, '/items/trash')
+    end
+
+    def restore(id)
+      request(Net::HTTP::Post, "/items/#{id}/restore")
+    end
+
+    def purge
+      request(Net::HTTP::Delete, '/items/purge')
     end
 
     # --- auth ---

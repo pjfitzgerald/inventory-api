@@ -62,7 +62,9 @@ module Api
           name: inventory.name,
           personal: inventory.personal,
           role: inventory.role_for(current_user),
-          item_count: inventory.items.count,
+          # Live items only — the switcher's count should match what the list
+          # shows, not include whatever is sitting in the recycle bin.
+          item_count: inventory.items.kept.count,
           member_count: inventory.inventory_memberships.count,
           owner: {
             id: inventory.owner.id,

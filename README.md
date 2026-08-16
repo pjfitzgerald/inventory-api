@@ -55,6 +55,7 @@ inventory show 42                           # one item
 
 inventory create --name 'Down jacket' \
   --current-location 'Hall cupboard' \
+  --sublocation 'Top shelf' \
   --intended-location 'Loft' \
   --tags camping,clothing \
   --quantity 1
@@ -64,6 +65,25 @@ inventory delete 42
 ```
 
 `inventory --help` prints the full command and option list.
+
+### The recycle bin
+
+`delete` no longer removes an item — it moves it to a per-inventory recycle
+bin, where it stays recoverable for 30 days:
+
+```sh
+inventory delete 42                         # -> "Binned item 42"
+inventory trash --format table              # what's in the bin
+inventory restore 42                        # bring it back
+
+inventory delete 42 --permanent             # skip the bin entirely
+inventory purge                             # empty the bin for good
+```
+
+Binned items are invisible to `list`, `show`'s siblings and the web app, and
+don't count towards an inventory's item count. Nothing runs on a timer:
+expired items are dropped whenever the bin is listed or emptied, and the
+`items:purge_trash` rake task does the same from cron if you want it tidier.
 
 ### Shared inventories
 
@@ -94,6 +114,8 @@ refused with "You have view-only access to this inventory".
 | `--field=key:value` | Set a custom field on `create` / `update`. Repeatable. |
 | `--tags=a,b,c` | Comma-separated; replaces the item's tags. |
 | `--inventory=ID` | Act on a shared inventory instead of your personal one. |
+| `--sublocation=L` | Optional second level of location, e.g. `--current-location Garage --sublocation 'Shelf 3'`. |
+| `--permanent` | On `delete`, skip the recycle bin. |
 
 Environment variables:
 

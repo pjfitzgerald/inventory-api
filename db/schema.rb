@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.0].define(version: 2026_08_12_090000) do
+ActiveRecord::Schema[7.0].define(version: 2026_08_16_090100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "plpgsql"
@@ -53,6 +53,10 @@ ActiveRecord::Schema[7.0].define(version: 2026_08_12_090000) do
     t.jsonb "custom_fields", default: {}
     t.bigint "user_id"
     t.bigint "inventory_id", null: false
+    t.string "sublocation"
+    t.datetime "deleted_at"
+    t.index ["deleted_at"], name: "index_items_on_deleted_at", where: "(deleted_at IS NOT NULL)"
+    t.index ["inventory_id", "updated_at"], name: "index_items_live_on_inventory", where: "(deleted_at IS NULL)"
     t.index ["inventory_id"], name: "index_items_on_inventory_id"
     t.index ["user_id"], name: "index_items_on_user_id"
   end

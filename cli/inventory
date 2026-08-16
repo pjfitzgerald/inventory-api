@@ -91,8 +91,23 @@ class Client
     request(Net::HTTP::Patch, "/items/#{id}", body: { item: attrs })
   end
 
-  def destroy(id)
-    request(Net::HTTP::Delete, "/items/#{id}")
+  # Bins the item by default; `permanent: true` skips the recycle bin.
+  def destroy(id, permanent: false)
+    path = "/items/#{id}"
+    path += '?permanent=true' if permanent
+    request(Net::HTTP::Delete, path)
+  end
+
+  def trash
+    request(Net::HTTP::Get, scoped('/items/trash'))
+  end
+
+  def restore(id)
+    request(Net::HTTP::Post, "/items/#{id}/restore")
+  end
+
+  def purge
+    request(Net::HTTP::Delete, scoped('/items/purge'))
   end
 
   # --- inventories ---
@@ -248,10 +263,15 @@ USAGE = <<~USAGE
     show ID                                            Show a single item
     create --name=NAME [options]                       Create an item
     update ID [options]                                Update an item
-    delete ID                                          Delete an item
+    delete ID [--permanent]                            Move an item to the recycle bin
+                                                        (--permanent deletes it outright)
+    trash                                              List the recycle bin
+    restore ID                                         Bring a binned item back
+    purge                                              Empty the recycle bin
 
   Item options (create/update):
-    --quantity=N  --category=C  --current-location=L  --intended-location=L
+    --quantity=N  --category=C  --current-location=L  --sublocation=L
+    --intended-location=L
     --weight=N  --owner=O  --notes=TEXT  --location-notes=TEXT
     --status=Keep|Sell|Discard
     --tags=tag1,tag2                Comma-separated tags
@@ -301,6 +321,7 @@ def parse_item_options(argv)
     o.on('--quantity=N') { |v| attrs['quantity'] = v }
     o.on('--category=C') { |v| attrs['category'] = v }
     o.on('--current-location=L') { |v| attrs['current_location'] = v }
+    o.on('--sublocation=L') { |v| attrs['sublocation'] = v }
     o.on('--intended-location=L') { |v| attrs['intended_location'] = v }
     o.on('--weight=N') { |v| attrs['weight'] = v }
     o.on('--owner=O') { |v| attrs['owner'] = v }
@@ -434,8 +455,23 @@ begin
   when 'delete'
     require_auth!
     id = argv.shift or die 'delete requires an ID'
-    client_for(opts).destroy(id)
-    warn "Deleted item #{id}"
+    permanent = false
+    OptionParser.new { |o| o.on('--permanent') { permanent = true } }.parse!(argv)
+    client_for(opts).destroy(id, permanent: permanent)
+    warn(permanent ? "Deleted item #{id}" : "Binned item #{id} — restore with `inventory restore #{id}`")
+  when 'trash'
+    require_auth!
+    body = client_for(opts).trash
+    warn "Binned items are purged after #{body['retention_days']} days."
+    Formatters.render(body['items'], format: opts[:format])
+  when 'restore'
+    require_auth!
+    id = argv.shift or die 'restore requires an ID'
+    Formatters.render(client_for(opts).restore(id), format: opts[:format])
+  when 'purge'
+    require_auth!
+    body = client_for(opts).purge
+    warn "Purged #{body['purged']} item(s)"
   else
     die "Unknown command: #{command.inspect}\n\n#{USAGE}"
   end

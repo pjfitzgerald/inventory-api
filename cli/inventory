@@ -17,6 +17,7 @@ require 'uri'
 require 'json'
 require 'fileutils'
 require 'optparse'
+require 'digest'
 
 DEFAULT_API_URL = 'https://inventory.optimisedthought.com/api/v1'
 
@@ -51,6 +52,146 @@ module TokenStore
   end
 end
 
+# Caches the full item list so `find` can match locally instead of making the
+# server do it. The API has one `ILIKE %term%` scope, which cannot match a
+# multi-word phrase against separate words -- the case an agent hits most.
+module ItemCache
+  TTL_SECONDS = 600
+
+  module_function
+
+  def path_for(base_url, token)
+    base = ENV['XDG_CACHE_HOME']
+    base = File.expand_path('~/.cache') if base.to_s.empty?
+    # Keyed by instance and account: the two prods hold different data, and
+    # two accounts on one instance must not read each other's cache.
+    key = Digest::SHA256.hexdigest("#{base_url}\x00#{token}")[0, 16]
+    File.join(base, 'inventory', "items-#{key}.json")
+  end
+
+  def read(path, max_age: TTL_SECONDS)
+    return nil unless File.exist?(path)
+    return nil if Time.now - File.mtime(path) > max_age
+
+    JSON.parse(File.read(path))
+  rescue JSON::ParserError
+    nil
+  end
+
+  def write(path, items)
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, JSON.generate(items))
+    File.chmod(0o600, path)
+    items
+  end
+
+  # Called after every write, so a `find` straight after a `create` can't
+  # serve a list that predates it.
+  def invalidate(path)
+    File.delete(path) if File.exist?(path)
+  end
+end
+
+# Ranked local matching over the cached items. Deliberately forgiving: an
+# agent turning "where's the blue down jacket" into a query should still land
+# on "Down jacket (navy)".
+module Search
+  STOPWORDS = %w[a an the my our his her its their this that these those is are was were
+                 in on at of for and or to with from where what which item items thing
+                 things put stored store keep kept].freeze
+
+  # field => weight. Everything searchable, but a name hit beats a notes hit.
+  WEIGHTS = {
+    'name' => 5.0, 'tags' => 3.0, 'category' => 3.0, 'current_location' => 2.0,
+    'sublocation' => 2.0, 'intended_location' => 1.0, 'owner' => 1.0,
+    'notes' => 1.0, 'location_notes' => 1.0, 'custom_fields' => 1.0
+  }.freeze
+
+  module_function
+
+  def normalize(value)
+    value.to_s.downcase.gsub(/[^a-z0-9]+/, ' ').strip
+  end
+
+  # Crude stemmer: enough to make "medals" find "medal" without a dependency.
+  def stem(word)
+    return word if word.length <= 3
+
+    word.sub(/(ies)$/, 'y').sub(/(es|s)$/, '')
+  end
+
+  def terms(query)
+    words = normalize(query).split(' ').reject { |w| STOPWORDS.include?(w) }
+    words = normalize(query).split(' ') if words.empty? # a query of only stopwords
+    words.uniq
+  end
+
+  def field_text(item, field)
+    value = item[field]
+    case value
+    when Array then value.join(' ')
+    when Hash then value.values.join(' ')
+    else value.to_s
+    end
+  end
+
+  # 0.0 (no match) .. 1.0 (exact word), scaled later by the field's weight.
+  def term_quality(term, text)
+    return 0.0 if text.empty?
+
+    words = text.split(' ')
+    stemmed = stem(term)
+    return 1.0 if words.any? { |w| w == term || stem(w) == stemmed }
+    return 0.8 if term.length >= 3 && words.any? { |w| w.start_with?(term) || term.start_with?(w) && w.length >= 4 }
+    return 0.6 if text.include?(term)
+
+    tolerance = term.length >= 6 ? 2 : 1
+    return 0.45 if term.length >= 4 && words.any? { |w| (w.length - term.length).abs <= tolerance && levenshtein(w, term, tolerance) <= tolerance }
+
+    0.0
+  end
+
+  # Bounded edit distance -- bails out as soon as the whole row exceeds max.
+  def levenshtein(a, b, max)
+    return (a.length - b.length).abs if a.empty? || b.empty?
+
+    prev = (0..b.length).to_a
+    a.each_char.with_index do |ca, i|
+      row = [i + 1]
+      b.each_char.with_index do |cb, j|
+        row << [prev[j + 1] + 1, row[j] + 1, prev[j] + (ca == cb ? 0 : 1)].min
+      end
+      return max + 1 if row.min > max
+
+      prev = row
+    end
+    prev.last
+  end
+
+  # Returns [results, strict] -- strict is false when no item matched every
+  # term and the ranking fell back to "closest thing we have".
+  def run(items, query, limit: 10)
+    query_terms = terms(query)
+    return [[], true] if query_terms.empty?
+
+    scored = items.map do |item|
+      texts = WEIGHTS.keys.to_h { |f| [f, normalize(field_text(item, f))] }
+      per_term = query_terms.map do |term|
+        WEIGHTS.map { |field, weight| weight * term_quality(term, texts[field]) }.max
+      end
+      [item, per_term.sum.round(3), per_term.all?(&:positive?)]
+    end
+
+    full = scored.select { |(_, score, all)| all && score.positive? }
+    chosen = full.any? ? full : scored.select { |(_, score, _)| score.positive? }
+    results = chosen.sort_by { |(item, score, _)| [-score, item['id'].to_i] }
+                    .first(limit)
+                    .map { |(item, score, _)| item.merge('score' => score) }
+
+    [results, full.any?]
+  end
+end
+
 class Client
   class Error < StandardError
     attr_reader :status, :body
@@ -61,6 +202,8 @@ class Client
       @body = body
     end
   end
+
+  attr_reader :base_url
 
   def initialize(base_url: ENV.fetch('INVENTORY_API_URL', DEFAULT_API_URL), token: TokenStore.read,
                  inventory_id: nil)
@@ -259,6 +402,11 @@ USAGE = <<~USAGE
                                                         with you) and your role in each
 
   Item commands:
+    find WORDS... [--limit=N] [--refresh]             Ranked local search: matches
+                                                       every word against every field,
+                                                       tolerates typos and plurals.
+                                                       Use this to turn a description
+                                                       into an item id.
     list [--query=TEXT]                               List items
     show ID                                            Show a single item
     create --name=NAME [options]                       Create an item
@@ -270,12 +418,18 @@ USAGE = <<~USAGE
     purge                                              Empty the recycle bin
 
   Item options (create/update):
+    --add-tags=a,b    --remove-tags=c     Edit the tag list in place
+    --unset-field=KEY                     Drop one custom field
+    --replace-fields                      Make --field replace custom_fields
+                                           wholesale instead of merging
     --quantity=N  --category=C  --current-location=L  --sublocation=L
     --intended-location=L
     --weight=N  --owner=O  --notes=TEXT  --location-notes=TEXT
     --status=Keep|Sell|Discard
-    --tags=tag1,tag2                Comma-separated tags
-    --field=key:value               Custom field; repeatable
+    --tags=tag1,tag2                Comma-separated; REPLACES the whole list
+                                     (use --add-tags to append)
+    --field=key:value               Custom field; repeatable. Merges into the
+                                     existing custom fields on update.
 
   Global options:
     --format=json|table              Output format (default: json)
@@ -290,6 +444,9 @@ USAGE = <<~USAGE
   Omit --password and you are prompted for it with echo off (or it is read
   from stdin when piped) -- safer than putting it in argv, and immune to the
   shell expanding a `!` or `$` inside it.
+
+  `find` caches the item list under ~/.cache/inventory (10 minutes, dropped
+  automatically after any create/update/delete).
 
   Auth: token is saved to ~/.config/inventory/token after login/signup/verify.
   Override per-invocation with INVENTORY_API_TOKEN.
@@ -334,9 +491,13 @@ def extract_global_options!(argv, opts)
   end
 end
 
+# Returns [attrs, mods]. `attrs` is what goes straight into the PATCH/POST;
+# `mods` describes the edits that need the item's current state first
+# (tag add/remove, and merging rather than replacing custom fields).
 def parse_item_options(argv)
   attrs = {}
   field = {}
+  mods = { add_tags: [], remove_tags: [], unset_fields: [], replace_fields: false }
   parser = OptionParser.new do |o|
     o.on('--name=NAME') { |v| attrs['name'] = v }
     o.on('--quantity=N') { |v| attrs['quantity'] = v }
@@ -350,13 +511,45 @@ def parse_item_options(argv)
     o.on('--location-notes=TEXT') { |v| attrs['location_notes'] = v }
     o.on('--status=STATUS') { |v| attrs['status'] = v }
     o.on('--tags=TAGS') { |v| attrs['tags'] = v.split(',') }
+    o.on('--add-tags=TAGS') { |v| mods[:add_tags].concat(v.split(',').map(&:strip).reject(&:empty?)) }
+    o.on('--remove-tags=TAGS') { |v| mods[:remove_tags].concat(v.split(',').map(&:strip).reject(&:empty?)) }
     o.on('--field=KV') do |v|
       key, value = v.split(':', 2)
       field[key] = value
     end
+    o.on('--unset-field=KEY') { |v| mods[:unset_fields] << v }
+    o.on('--replace-fields') { mods[:replace_fields] = true }
   end
   parser.parse!(argv)
   attrs['custom_fields'] = field unless field.empty?
+  [attrs, mods]
+end
+
+# Applies the edits that depend on the item's current state. Fetches the item
+# only when one was actually asked for, so a plain field update stays a single
+# request.
+def apply_mods(client, id, attrs, mods)
+  wants_tags = mods[:add_tags].any? || mods[:remove_tags].any?
+  wants_fields = (attrs.key?('custom_fields') && !mods[:replace_fields]) || mods[:unset_fields].any?
+  return attrs unless wants_tags || wants_fields
+
+  current = client.show(id)
+
+  if wants_tags
+    die 'Pass either --tags or --add-tags/--remove-tags, not both.' if attrs.key?('tags')
+
+    tags = Array(current['tags']).map(&:to_s)
+    tags += mods[:add_tags]
+    tags -= mods[:remove_tags]
+    attrs['tags'] = tags.map(&:strip).reject(&:empty?).uniq
+  end
+
+  if wants_fields
+    fields = (current['custom_fields'] || {}).merge(attrs['custom_fields'] || {})
+    mods[:unset_fields].each { |key| fields.delete(key) }
+    attrs['custom_fields'] = fields
+  end
+
   attrs
 end
 
@@ -365,6 +558,14 @@ def client_for(opts)
   args[:base_url] = opts[:url] if opts[:url]
   args[:inventory_id] = opts[:inventory_id] if opts[:inventory_id]
   Client.new(**args)
+end
+
+def cache_path_for(client)
+  ItemCache.path_for(client.base_url, TokenStore.read)
+end
+
+def invalidate_cache!(client)
+  ItemCache.invalidate(cache_path_for(client))
 end
 
 def require_auth!
@@ -461,27 +662,65 @@ begin
     query = nil
     OptionParser.new { |o| o.on('--query=Q') { |v| query = v } }.parse!(argv)
     Formatters.render(client_for(opts).list(query: query), format: opts[:format])
+  when 'find'
+    require_auth!
+    limit = 10
+    refresh = false
+    OptionParser.new do |o|
+      o.on('--limit=N') { |v| limit = v.to_i }
+      o.on('--refresh') { refresh = true }
+    end.parse!(argv)
+    query = argv.join(' ')
+    die 'find requires something to search for' if query.strip.empty?
+
+    client = client_for(opts)
+    path = cache_path_for(client)
+    items = refresh ? nil : ItemCache.read(path)
+    if items.nil?
+      items = ItemCache.write(path, client.list)
+    else
+      warn "(matching against #{items.length} cached items — `--refresh` to re-fetch)"
+    end
+
+    results, strict = Search.run(items, query, limit: limit)
+    if results.empty?
+      warn "No item matches #{query.inspect}."
+    elsif !strict
+      warn "No item matches every word of #{query.inspect} — showing the closest matches."
+    end
+    Formatters.render(results, format: opts[:format])
   when 'show'
     require_auth!
     id = argv.shift or die 'show requires an ID'
     Formatters.render(client_for(opts).show(id), format: opts[:format])
   when 'create'
     require_auth!
-    attrs = parse_item_options(argv)
+    attrs, mods = parse_item_options(argv)
     die 'create requires --name' unless attrs['name']
-    Formatters.render(client_for(opts).create(attrs), format: opts[:format])
+    # Nothing exists yet to add to, so these are just the initial values.
+    attrs['tags'] = ((attrs['tags'] || []) + mods[:add_tags]).uniq if mods[:add_tags].any?
+    client = client_for(opts)
+    result = client.create(attrs)
+    invalidate_cache!(client)
+    Formatters.render(result, format: opts[:format])
   when 'update'
     require_auth!
     id = argv.shift or die 'update requires an ID'
-    attrs = parse_item_options(argv)
+    attrs, mods = parse_item_options(argv)
+    client = client_for(opts)
+    attrs = apply_mods(client, id, attrs, mods)
     die 'Nothing to update — pass at least one field.' if attrs.empty?
-    Formatters.render(client_for(opts).update(id, attrs), format: opts[:format])
+    result = client.update(id, attrs)
+    invalidate_cache!(client)
+    Formatters.render(result, format: opts[:format])
   when 'delete'
     require_auth!
     id = argv.shift or die 'delete requires an ID'
     permanent = false
     OptionParser.new { |o| o.on('--permanent') { permanent = true } }.parse!(argv)
-    client_for(opts).destroy(id, permanent: permanent)
+    client = client_for(opts)
+    client.destroy(id, permanent: permanent)
+    invalidate_cache!(client)
     warn(permanent ? "Deleted item #{id}" : "Binned item #{id} — restore with `inventory restore #{id}`")
   when 'trash'
     require_auth!

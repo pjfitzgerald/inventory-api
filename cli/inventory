@@ -243,9 +243,9 @@ USAGE = <<~USAGE
   Usage: inventory [--url=URL] [--format=json|table] [--inventory=ID] <command> [options]
 
   Auth commands:
-    auth login --email=EMAIL --password=PASSWORD     Log in and store an auth token
+    auth login --email=EMAIL [--password=PASSWORD]   Log in and store an auth token
     auth logout                                       Discard the stored auth token
-    auth signup --email=EMAIL --password=PASSWORD [--name=NAME]
+    auth signup --email=EMAIL [--password=PASSWORD] [--name=NAME]
                                                        Create a new account
     auth verify --token=TOKEN                         Verify an email address
     auth request-reset --email=EMAIL                  Request a password-reset email
@@ -287,6 +287,10 @@ USAGE = <<~USAGE
   Sharing is managed in the web app: only members can read an inventory, and
   a viewer's writes are refused.
 
+  Omit --password and you are prompted for it with echo off (or it is read
+  from stdin when piped) -- safer than putting it in argv, and immune to the
+  shell expanding a `!` or `$` inside it.
+
   Auth: token is saved to ~/.config/inventory/token after login/signup/verify.
   Override per-invocation with INVENTORY_API_TOKEN.
 USAGE
@@ -294,6 +298,23 @@ USAGE
 def die(message)
   warn message
   exit 1
+end
+
+# Reads a password without it ever appearing in argv -- so no shell history,
+# no `ps` listing, and (the reason this exists) no chance of zsh mangling a
+# `!` or `$` on the way in. Prompts with echo off on a terminal; otherwise
+# takes one line from stdin, which is what makes `... | inventory auth login`
+# and CI usage work.
+def read_password(prompt = 'Password: ')
+  if $stdin.tty?
+    require 'io/console'
+    value = $stdin.getpass(prompt)
+    value.to_s.empty? ? die('No password entered.') : value
+  else
+    value = $stdin.gets
+    die('No password on stdin.') if value.nil?
+    value.chomp
+  end
 end
 
 # Strips --format/--url out of argv wherever they appear (before or after
@@ -360,7 +381,8 @@ def run_auth(argv, opts)
   when 'login'
     email = password = nil
     OptionParser.new { |o| o.on('--email=E') { |v| email = v }; o.on('--password=P') { |v| password = v } }.parse!(argv)
-    die 'auth login requires --email and --password' unless email && password
+    die 'auth login requires --email' unless email
+    password ||= read_password
     result = client.login(email: email, password: password)
     TokenStore.write(result['token'])
     warn "Logged in as #{result.dig('user', 'email')}. Token saved to #{TokenStore.path}."
@@ -374,7 +396,8 @@ def run_auth(argv, opts)
       o.on('--password=P') { |v| password = v }
       o.on('--name=N') { |v| name = v }
     end.parse!(argv)
-    die 'auth signup requires --email and --password' unless email && password
+    die 'auth signup requires --email' unless email
+    password ||= read_password
     result = client.signup(email: email, password: password, name: name)
     warn(result['message'] || 'Account created.')
     if (token = result['verification_token'])
@@ -401,7 +424,8 @@ def run_auth(argv, opts)
   when 'reset-password'
     token = password = nil
     OptionParser.new { |o| o.on('--token=T') { |v| token = v }; o.on('--password=P') { |v| password = v } }.parse!(argv)
-    die 'auth reset-password requires --token and --password' unless token && password
+    die 'auth reset-password requires --token' unless token
+    password ||= read_password('New password: ')
     result = client.reset_password(token: token, password: password)
     TokenStore.write(result['token']) if result['token']
     warn(result['message'] || 'Password updated.')
